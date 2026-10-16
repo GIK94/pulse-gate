@@ -1,0 +1,137 @@
+# PulseGate local development stack.
+# The secrets below are DEVELOPMENT DEFAULTS ONLY (override via a .env file).
+# The services refuse dev-only secrets and ALLOW_PRIVATE_UPSTREAMS when NODE_ENV=production.
+name: pulsegate
+
+x-app-env: &app-env
+  NODE_ENV: development
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgres://pulsegate:pulsegate@postgres:5432/pulsegate
+  REDIS_URL: redis://redis:6379
+  API_KEY_PEPPER: ${API_KEY_PEPPER:-dev-only-pepper-change-me-in-production}
+  ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-dev:ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=}
+  # Development only: lets the gateway reach the demo upstream on the Docker network.
+  ALLOW_PRIVATE_UPSTREAMS: 'true'
+  RETENTION_DAYS: ${RETENTION_DAYS:-30}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pulsegate
+      POSTGRES_PASSWORD: pulsegate
+      POSTGRES_DB: pulsegate
+    ports:
+      - '${POSTGRES_HOST_PORT:-55432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pulsegate -d pulsegate']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    # AOF with fsync every second: rate-limit state and buffered analytics
+    # survive restarts with at most ~1s of loss.
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    ports:
+      - '${REDIS_HOST_PORT:-56379}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: { context: ., target: node-app }
+    command: ['sh', '-c', 'node packages/db/dist/cli.js migrate && node apps/api/dist/cli/seed.js']
+    environment:
+      <<: *app-env
+      DEMO_UPSTREAM_URL: http://demo-upstream:4100
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build: { context: ., target: node-app }
+    command: ['node', 'apps/api/dist/main.js']
+    environment:
+      <<: *app-env
+      API_PORT: 4000
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:8787}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      TRUST_PROXY: 'true'
+    ports:
+      - '${API_HOST_PORT:-4000}:4000'
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4000/api/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build: { context: ., target: node-app }
+    command: ['node', 'apps/gateway/dist/main.js']
+    environment:
+      <<: *app-env
+      GATEWAY_PORT: 8787
+      GATEWAY_ADMIN_PORT: 9464
+    ports:
+      - '${GATEWAY_HOST_PORT:-8787}:8787'
+      - '${GATEWAY_METRICS_HOST_PORT:-9464}:9464'
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8787/readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    build: { context: ., target: node-app }
+    command: ['node', 'apps/gateway/dist/worker/main.js']
+    environment:
+      <<: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  demo-upstream:
+    build: { context: ., target: node-app }
+    command: ['node', 'apps/demo-upstream/dist/server.js']
+    environment:
+      PORT: 4100
+    ports:
+      - '${DEMO_HOST_PORT:-4100}:4100'
+
+  web:
+    build: { context: ., target: web }
+    ports:
+      - '${WEB_HOST_PORT:-5173}:80'
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Load testing (not started by default): docker compose --profile loadtest run --rm k6 run /scripts/<scenario>.js
+  k6:
+    image: grafana/k6:1.8.1
+    profiles: ['loadtest']
+    volumes:
+      - ./loadtest:/scripts:ro
+      - ./loadtest/results:/results
+    environment:
+      BASE_URL: http://gateway:8787
+      PROJECT_SLUG: demo-store
+    depends_on:
+      gateway: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,16 @@
+{
+  "name": "@pulsegate/demo-upstream",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/app.js",
+  "types": "dist/app.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

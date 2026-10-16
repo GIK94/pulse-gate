@@ -1,0 +1,49 @@
+{
+  "name": "pulsegate",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-tenant API gateway and monitoring platform",
+  "workspaces": [
+    "packages/shared",
+    "packages/db",
+    "apps/demo-upstream",
+    "apps/gateway",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build:packages": "npm run build -w @pulsegate/shared -w @pulsegate/db",
+    "build": "npm run build:packages && npm run build -w @pulsegate/demo-upstream -w @pulsegate/gateway -w @pulsegate/api -w @pulsegate/web",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build:packages && npm run test --workspaces --if-present",
+    "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
+    "db:migrate": "npm run migrate -w @pulsegate/db",
+    "db:seed": "npm run seed -w @pulsegate/api",
+    "db:retention": "npm run retention -w @pulsegate/db",
+    "secrets:reencrypt": "npm run reencrypt -w @pulsegate/db",
+    "infra:up": "docker compose up -d postgres redis",
+    "infra:down": "docker compose down",
+    "dev:api": "npm run dev -w @pulsegate/api",
+    "dev:gateway": "npm run dev -w @pulsegate/gateway",
+    "dev:worker": "npm run dev:worker -w @pulsegate/gateway",
+    "dev:demo": "npm run dev -w @pulsegate/demo-upstream",
+    "dev:web": "npm run dev -w @pulsegate/web",
+    "loadtest:reset": "node --env-file-if-exists=.env scripts/reset-rate-limits.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.0",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.6.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}
