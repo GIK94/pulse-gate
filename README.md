@@ -48,7 +48,7 @@ sequenceDiagram
     participant P as PostgreSQL
     C->>G: GET /acme-store/v1/products (X-PulseGate-Key)
     G->>G: resolve project "acme-store" (cached config)
-    G->>G: verify key hash, status, expiry; method/path policies
+    G->>G: verify key hash, status, expiry, and method/path policies
     G->>R: sliding-window check (key + route limits, atomic Lua)
     alt over limit
         G-->>C: 429 + Retry-After + RateLimit-*
